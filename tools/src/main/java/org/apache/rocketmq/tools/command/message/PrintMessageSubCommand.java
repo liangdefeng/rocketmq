@@ -24,6 +24,7 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.rocketmq.client.consumer.DefaultMQPullConsumer;
 import org.apache.rocketmq.client.consumer.PullResult;
+import org.apache.rocketmq.client.impl.FindBrokerResult;
 import org.apache.rocketmq.common.MixAll;
 import org.apache.rocketmq.common.UtilAll;
 import org.apache.rocketmq.common.message.MessageExt;
@@ -62,7 +63,7 @@ public class PrintMessageSubCommand implements SubCommand {
 
     @Override
     public String commandDesc() {
-        return "Print Message Detail";
+        return "Print Message Detail.";
     }
 
     @Override
@@ -97,6 +98,12 @@ public class PrintMessageSubCommand implements SubCommand {
         opt.setRequired(false);
         options.addOption(opt);
 
+        opt =
+            new Option("l", "lmqParentTopic", true,
+                "Lmq parent topic, lmq is used to find the route.");
+        opt.setRequired(false);
+        options.addOption(opt);
+
         return options;
     }
 
@@ -113,11 +120,20 @@ public class PrintMessageSubCommand implements SubCommand {
             String subExpression =
                 !commandLine.hasOption('s') ? "*" : commandLine.getOptionValue('s').trim();
 
+            String lmqParentTopic =
+                !commandLine.hasOption('l') ? null : commandLine.getOptionValue('l').trim();
+
             boolean printBody = !commandLine.hasOption('d') || Boolean.parseBoolean(commandLine.getOptionValue('d').trim());
 
             consumer.start();
 
-            Set<MessageQueue> mqs = consumer.fetchSubscribeMessageQueues(topic);
+            Set<MessageQueue> mqs;
+            if (lmqParentTopic != null) {
+                mqs = consumer.fetchSubscribeMessageQueues(lmqParentTopic);
+                mqs.forEach(mq -> mq.setTopic(topic));
+            } else {
+                mqs = consumer.fetchSubscribeMessageQueues(topic);
+            }
             for (MessageQueue mq : mqs) {
                 long minOffset = consumer.minOffset(mq);
                 long maxOffset = consumer.maxOffset(mq);
@@ -134,11 +150,12 @@ public class PrintMessageSubCommand implements SubCommand {
                     maxOffset = consumer.searchOffset(mq, timeValue);
                 }
 
-                System.out.printf("minOffset=%s, maxOffset=%s, %s", minOffset, maxOffset, mq);
+                System.out.printf("minOffset=%s, maxOffset=%s, %s%n", minOffset, maxOffset, mq);
 
                 READQ:
                 for (long offset = minOffset; offset < maxOffset; ) {
                     try {
+                        fillBrokerAddrIfNotExist(consumer, mq, lmqParentTopic);
                         PullResult pullResult = consumer.pull(mq, subExpression, offset, 32);
                         offset = pullResult.getNextBeginOffset();
                         switch (pullResult.getPullStatus()) {
@@ -146,11 +163,11 @@ public class PrintMessageSubCommand implements SubCommand {
                                 printMessage(pullResult.getMsgFoundList(), charsetName, printBody);
                                 break;
                             case NO_MATCHED_MSG:
-                                System.out.printf(mq + " no matched msg. status=%s, offset=%s", pullResult.getPullStatus(), offset);
+                                System.out.printf("%s no matched msg. status=%s, offset=%s%n", mq, pullResult.getPullStatus(), offset);
                                 break;
                             case NO_NEW_MSG:
                             case OFFSET_ILLEGAL:
-                                System.out.printf(mq + " print msg finished. status=%s, offset=%s", pullResult.getPullStatus(), offset);
+                                System.out.printf("%s print msg finished. status=%s, offset=%s%n", mq, pullResult.getPullStatus(), offset);
                                 break READQ;
                         }
                     } catch (Exception e) {
@@ -158,6 +175,7 @@ public class PrintMessageSubCommand implements SubCommand {
                         break;
                     }
                 }
+                System.out.printf("--------------------------------------------------------\n");
             }
 
         } catch (Exception e) {
@@ -165,5 +183,18 @@ public class PrintMessageSubCommand implements SubCommand {
         } finally {
             consumer.shutdown();
         }
+    }
+
+    public void fillBrokerAddrIfNotExist(DefaultMQPullConsumer defaultMQPullConsumer, MessageQueue messageQueue,
+        String routeTopic) {
+
+        FindBrokerResult findBrokerResult = defaultMQPullConsumer.getDefaultMQPullConsumerImpl().getRebalanceImpl().getmQClientFactory()
+            .findBrokerAddressInSubscribe(messageQueue.getBrokerName(), 0, false);
+        if (findBrokerResult == null) {
+            // use lmq parent topic to fill up broker addr table
+            defaultMQPullConsumer.getDefaultMQPullConsumerImpl().getRebalanceImpl().getmQClientFactory()
+                .updateTopicRouteInfoFromNameServer(routeTopic);
+        }
+
     }
 }

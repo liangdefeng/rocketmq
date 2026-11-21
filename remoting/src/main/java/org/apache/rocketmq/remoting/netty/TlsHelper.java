@@ -30,9 +30,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.cert.CertificateException;
 import java.util.Properties;
-import org.apache.rocketmq.remoting.common.RemotingHelper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.rocketmq.common.constant.LoggerName;
+import org.apache.rocketmq.logging.org.slf4j.Logger;
+import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
 import static org.apache.rocketmq.remoting.netty.TlsSystemConfig.TLS_CLIENT_AUTHSERVER;
 import static org.apache.rocketmq.remoting.netty.TlsSystemConfig.TLS_CLIENT_CERTPATH;
@@ -73,7 +73,7 @@ public class TlsHelper {
         InputStream decryptPrivateKey(String privateKeyEncryptPath, boolean forClient) throws IOException;
     }
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(RemotingHelper.ROCKETMQ_REMOTING);
+    private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.ROCKETMQ_REMOTING_NAME);
 
     private static DecryptionStrategy decryptionStrategy = new DecryptionStrategy() {
         @Override
@@ -133,7 +133,7 @@ public class TlsHelper {
                 SelfSignedCertificate selfSignedCertificate = new SelfSignedCertificate();
                 return SslContextBuilder
                     .forServer(selfSignedCertificate.certificate(), selfSignedCertificate.privateKey())
-                    .sslProvider(SslProvider.JDK)
+                    .sslProvider(provider)
                     .clientAuth(ClientAuth.OPTIONAL)
                     .build();
             } else {
@@ -197,18 +197,16 @@ public class TlsHelper {
     private static void logTheFinalUsedTlsConfig() {
         LOGGER.info("Log the final used tls related configuration");
         LOGGER.info("{} = {}", TLS_TEST_MODE_ENABLE, tlsTestModeEnable);
-        LOGGER.info("{} = {}", TLS_SERVER_NEED_CLIENT_AUTH, tlsServerNeedClientAuth);
-        LOGGER.info("{} = {}", TLS_SERVER_KEYPATH, tlsServerKeyPath);
-        LOGGER.info("{} = {}", TLS_SERVER_KEYPASSWORD, tlsServerKeyPassword);
-        LOGGER.info("{} = {}", TLS_SERVER_CERTPATH, tlsServerCertPath);
-        LOGGER.info("{} = {}", TLS_SERVER_AUTHCLIENT, tlsServerAuthClient);
-        LOGGER.info("{} = {}", TLS_SERVER_TRUSTCERTPATH, tlsServerTrustCertPath);
+        LOGGER.debug("{} = {}", TLS_SERVER_NEED_CLIENT_AUTH, tlsServerNeedClientAuth);
+        LOGGER.debug("{} = {}", TLS_SERVER_KEYPATH, tlsServerKeyPath);
+        LOGGER.debug("{} = {}", TLS_SERVER_CERTPATH, tlsServerCertPath);
+        LOGGER.debug("{} = {}", TLS_SERVER_AUTHCLIENT, tlsServerAuthClient);
+        LOGGER.debug("{} = {}", TLS_SERVER_TRUSTCERTPATH, tlsServerTrustCertPath);
 
-        LOGGER.info("{} = {}", TLS_CLIENT_KEYPATH, tlsClientKeyPath);
-        LOGGER.info("{} = {}", TLS_CLIENT_KEYPASSWORD, tlsClientKeyPassword);
-        LOGGER.info("{} = {}", TLS_CLIENT_CERTPATH, tlsClientCertPath);
-        LOGGER.info("{} = {}", TLS_CLIENT_AUTHSERVER, tlsClientAuthServer);
-        LOGGER.info("{} = {}", TLS_CLIENT_TRUSTCERTPATH, tlsClientTrustCertPath);
+        LOGGER.debug("{} = {}", TLS_CLIENT_KEYPATH, tlsClientKeyPath);
+        LOGGER.debug("{} = {}", TLS_CLIENT_CERTPATH, tlsClientCertPath);
+        LOGGER.debug("{} = {}", TLS_CLIENT_AUTHSERVER, tlsClientAuthServer);
+        LOGGER.debug("{} = {}", TLS_CLIENT_TRUSTCERTPATH, tlsClientTrustCertPath);
     }
 
     private static ClientAuth parseClientAuthMode(String authMode) {
@@ -216,8 +214,9 @@ public class TlsHelper {
             return ClientAuth.NONE;
         }
 
+        String authModeUpper = authMode.toUpperCase();
         for (ClientAuth clientAuth : ClientAuth.values()) {
-            if (clientAuth.name().equals(authMode.toUpperCase())) {
+            if (clientAuth.name().equals(authModeUpper)) {
                 return clientAuth;
             }
         }

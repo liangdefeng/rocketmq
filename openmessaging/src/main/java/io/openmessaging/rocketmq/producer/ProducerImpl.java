@@ -19,27 +19,32 @@ package io.openmessaging.rocketmq.producer;
 import io.openmessaging.BytesMessage;
 import io.openmessaging.KeyValue;
 import io.openmessaging.Message;
-import io.openmessaging.MessageHeader;
-import io.openmessaging.Producer;
 import io.openmessaging.Promise;
-import io.openmessaging.PropertyKeys;
-import io.openmessaging.SendResult;
 import io.openmessaging.exception.OMSRuntimeException;
+import io.openmessaging.interceptor.ProducerInterceptor;
+import io.openmessaging.producer.BatchMessageSender;
+import io.openmessaging.producer.LocalTransactionExecutor;
+import io.openmessaging.producer.Producer;
+import io.openmessaging.producer.SendResult;
 import io.openmessaging.rocketmq.promise.DefaultPromise;
 import io.openmessaging.rocketmq.utils.OMSUtil;
 import org.apache.rocketmq.client.producer.SendCallback;
 import org.apache.rocketmq.client.producer.SendStatus;
+import org.apache.rocketmq.logging.org.slf4j.Logger;
+import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
 import static io.openmessaging.rocketmq.utils.OMSUtil.msgConvert;
 
 public class ProducerImpl extends AbstractOMSProducer implements Producer {
+
+    private static final Logger log = LoggerFactory.getLogger(ProducerImpl.class);
 
     public ProducerImpl(final KeyValue properties) {
         super(properties);
     }
 
     @Override
-    public KeyValue properties() {
+    public KeyValue attributes() {
         return properties;
     }
 
@@ -50,9 +55,14 @@ public class ProducerImpl extends AbstractOMSProducer implements Producer {
 
     @Override
     public SendResult send(final Message message, final KeyValue properties) {
-        long timeout = properties.containsKey(PropertyKeys.OPERATION_TIMEOUT)
-            ? properties.getInt(PropertyKeys.OPERATION_TIMEOUT) : this.rocketmqProducer.getSendMsgTimeout();
+        long timeout = properties.containsKey(Message.BuiltinKeys.TIMEOUT)
+            ? properties.getInt(Message.BuiltinKeys.TIMEOUT) : this.rocketmqProducer.getSendMsgTimeout();
         return send(message, timeout);
+    }
+
+    @Override
+    public SendResult send(Message message, LocalTransactionExecutor branchExecutor, KeyValue attributes) {
+        return null;
     }
 
     private SendResult send(final Message message, long timeout) {
@@ -64,11 +74,11 @@ public class ProducerImpl extends AbstractOMSProducer implements Producer {
                 log.error(String.format("Send message to RocketMQ failed, %s", message));
                 throw new OMSRuntimeException("-1", "Send message to RocketMQ broker failed.");
             }
-            message.headers().put(MessageHeader.MESSAGE_ID, rmqResult.getMsgId());
+            message.sysHeaders().put(Message.BuiltinKeys.MESSAGE_ID, rmqResult.getMsgId());
             return OMSUtil.sendResultConvert(rmqResult);
         } catch (Exception e) {
             log.error(String.format("Send message to RocketMQ failed, %s", message), e);
-            throw checkProducerException(rmqMessage.getTopic(), message.headers().getString(MessageHeader.MESSAGE_ID), e);
+            throw checkProducerException(rmqMessage.getTopic(), message.sysHeaders().getString(Message.BuiltinKeys.MESSAGE_ID), e);
         }
     }
 
@@ -79,8 +89,8 @@ public class ProducerImpl extends AbstractOMSProducer implements Producer {
 
     @Override
     public Promise<SendResult> sendAsync(final Message message, final KeyValue properties) {
-        long timeout = properties.containsKey(PropertyKeys.OPERATION_TIMEOUT)
-            ? properties.getInt(PropertyKeys.OPERATION_TIMEOUT) : this.rocketmqProducer.getSendMsgTimeout();
+        long timeout = properties.containsKey(Message.BuiltinKeys.TIMEOUT)
+            ? properties.getInt(Message.BuiltinKeys.TIMEOUT) : this.rocketmqProducer.getSendMsgTimeout();
         return sendAsync(message, timeout);
     }
 
@@ -92,7 +102,7 @@ public class ProducerImpl extends AbstractOMSProducer implements Producer {
             this.rocketmqProducer.send(rmqMessage, new SendCallback() {
                 @Override
                 public void onSuccess(final org.apache.rocketmq.client.producer.SendResult rmqResult) {
-                    message.headers().put(MessageHeader.MESSAGE_ID, rmqResult.getMsgId());
+                    message.sysHeaders().put(Message.BuiltinKeys.MESSAGE_ID, rmqResult.getMsgId());
                     promise.set(OMSUtil.sendResultConvert(rmqResult));
                 }
 
@@ -120,5 +130,20 @@ public class ProducerImpl extends AbstractOMSProducer implements Producer {
     @Override
     public void sendOneway(final Message message, final KeyValue properties) {
         sendOneway(message);
+    }
+
+    @Override
+    public BatchMessageSender createBatchMessageSender() {
+        return null;
+    }
+
+    @Override
+    public void addInterceptor(ProducerInterceptor interceptor) {
+
+    }
+
+    @Override
+    public void removeInterceptor(ProducerInterceptor interceptor) {
+
     }
 }

@@ -17,9 +17,6 @@
 package org.apache.rocketmq.broker.client.net;
 
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.FileRegion;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -29,29 +26,31 @@ import java.util.concurrent.ConcurrentMap;
 import org.apache.rocketmq.broker.BrokerController;
 import org.apache.rocketmq.broker.client.ClientChannelInfo;
 import org.apache.rocketmq.broker.client.ConsumerGroupInfo;
-import org.apache.rocketmq.broker.pagecache.OneMessageTransfer;
 import org.apache.rocketmq.common.MQVersion;
 import org.apache.rocketmq.common.TopicConfig;
 import org.apache.rocketmq.common.UtilAll;
 import org.apache.rocketmq.common.constant.LoggerName;
+import org.apache.rocketmq.common.message.MessageDecoder;
+import org.apache.rocketmq.common.message.MessageExt;
 import org.apache.rocketmq.common.message.MessageQueue;
 import org.apache.rocketmq.common.message.MessageQueueForC;
-import org.apache.rocketmq.common.protocol.RequestCode;
-import org.apache.rocketmq.common.protocol.ResponseCode;
-import org.apache.rocketmq.common.protocol.body.GetConsumerStatusBody;
-import org.apache.rocketmq.common.protocol.body.ResetOffsetBody;
-import org.apache.rocketmq.common.protocol.body.ResetOffsetBodyForC;
-import org.apache.rocketmq.common.protocol.header.CheckTransactionStateRequestHeader;
-import org.apache.rocketmq.common.protocol.header.GetConsumerStatusRequestHeader;
-import org.apache.rocketmq.common.protocol.header.NotifyConsumerIdsChangedRequestHeader;
-import org.apache.rocketmq.common.protocol.header.ResetOffsetRequestHeader;
+import org.apache.rocketmq.logging.org.slf4j.Logger;
+import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 import org.apache.rocketmq.remoting.common.RemotingHelper;
+import org.apache.rocketmq.remoting.exception.RemotingCommandException;
 import org.apache.rocketmq.remoting.exception.RemotingSendRequestException;
 import org.apache.rocketmq.remoting.exception.RemotingTimeoutException;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
-import org.apache.rocketmq.store.SelectMappedBufferResult;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.rocketmq.remoting.protocol.RequestCode;
+import org.apache.rocketmq.remoting.protocol.ResponseCode;
+import org.apache.rocketmq.remoting.protocol.body.GetConsumerStatusBody;
+import org.apache.rocketmq.remoting.protocol.body.ResetOffsetBody;
+import org.apache.rocketmq.remoting.protocol.body.ResetOffsetBodyForC;
+import org.apache.rocketmq.remoting.protocol.header.CheckTransactionStateRequestHeader;
+import org.apache.rocketmq.remoting.protocol.header.GetConsumerStatusRequestHeader;
+import org.apache.rocketmq.remoting.protocol.header.NotifyConsumerIdsChangedRequestHeader;
+import org.apache.rocketmq.remoting.protocol.header.ResetOffsetRequestHeader;
+import org.apache.rocketmq.store.exception.ConsumeQueueException;
 
 public class Broker2Client {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
@@ -62,29 +61,18 @@ public class Broker2Client {
     }
 
     public void checkProducerTransactionState(
+        final String group,
         final Channel channel,
         final CheckTransactionStateRequestHeader requestHeader,
-        final SelectMappedBufferResult selectMappedBufferResult) {
+        final MessageExt messageExt) throws Exception {
         RemotingCommand request =
             RemotingCommand.createRequestCommand(RequestCode.CHECK_TRANSACTION_STATE, requestHeader);
-        request.markOnewayRPC();
-
+        request.setBody(MessageDecoder.encode(messageExt, false));
         try {
-            FileRegion fileRegion =
-                new OneMessageTransfer(request.encodeHeader(selectMappedBufferResult.getSize()),
-                    selectMappedBufferResult);
-            channel.writeAndFlush(fileRegion).addListener(new ChannelFutureListener() {
-                @Override
-                public void operationComplete(ChannelFuture future) throws Exception {
-                    selectMappedBufferResult.release();
-                    if (!future.isSuccess()) {
-                        log.error("invokeProducer failed,", future.cause());
-                    }
-                }
-            });
-        } catch (Throwable e) {
-            log.error("invokeProducer exception", e);
-            selectMappedBufferResult.release();
+            this.brokerController.getRemotingServer().invokeOneway(channel, request, 10);
+        } catch (Exception e) {
+            log.error("Check transaction failed because invoke producer exception. group={}, msgId={}, error={}",
+                    group, messageExt.getMsgId(), e.toString());
         }
     }
 
@@ -110,27 +98,27 @@ public class Broker2Client {
         try {
             this.brokerController.getRemotingServer().invokeOneway(channel, request, 10);
         } catch (Exception e) {
-            log.error("notifyConsumerIdsChanged exception, " + consumerGroup, e.getMessage());
+            log.error("notifyConsumerIdsChanged exception. group={}, error={}", consumerGroup, e.toString());
         }
     }
 
-    public RemotingCommand resetOffset(String topic, String group, long timeStamp, boolean isForce) {
+    public RemotingCommand resetOffset(String topic, String group, long timeStamp, boolean isForce) throws RemotingCommandException {
         return resetOffset(topic, group, timeStamp, isForce, false);
     }
 
     public RemotingCommand resetOffset(String topic, String group, long timeStamp, boolean isForce,
-        boolean isC) {
+        boolean isC) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
 
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(topic);
         if (null == topicConfig) {
             log.error("[reset-offset] reset offset failed, no topic in this broker. topic={}", topic);
-            response.setCode(ResponseCode.SYSTEM_ERROR);
+            response.setCode(ResponseCode.TOPIC_NOT_EXIST);
             response.setRemark("[reset-offset] reset offset failed, no topic in this broker. topic=" + topic);
             return response;
         }
 
-        Map<MessageQueue, Long> offsetTable = new HashMap<MessageQueue, Long>();
+        Map<MessageQueue, Long> offsetTable = new HashMap<>();
 
         for (int i = 0; i < topicConfig.getWriteQueueNums(); i++) {
             MessageQueue mq = new MessageQueue();
@@ -148,8 +136,11 @@ public class Broker2Client {
 
             long timeStampOffset;
             if (timeStamp == -1) {
-
-                timeStampOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, i);
+                try {
+                    timeStampOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, i);
+                } catch (ConsumeQueueException e) {
+                    throw new RemotingCommandException("Failed to get max offset in queue", e);
+                }
             } else {
                 timeStampOffset = this.brokerController.getMessageStore().getOffsetInQueueByTime(topic, i, timeStamp);
             }
@@ -199,14 +190,14 @@ public class Broker2Client {
                         log.info("[reset-offset] reset offset success. topic={}, group={}, clientId={}",
                             topic, group, entry.getValue().getClientId());
                     } catch (Exception e) {
-                        log.error("[reset-offset] reset offset exception. topic={}, group={}",
-                            new Object[] {topic, group}, e);
+                        log.error("[reset-offset] reset offset exception. topic={}, group={} ,error={}",
+                            topic, group, e.toString());
                     }
                 } else {
                     response.setCode(ResponseCode.SYSTEM_ERROR);
                     response.setRemark("the client does not support this feature. version="
                         + MQVersion.getVersionDesc(version));
-                    log.warn("[reset-offset] the client does not support this feature. version={}",
+                    log.warn("[reset-offset] the client does not support this feature. channel={}, version={}",
                         RemotingHelper.parseChannelRemoteAddr(entry.getKey()), MQVersion.getVersionDesc(version));
                     return response;
                 }
@@ -250,8 +241,7 @@ public class Broker2Client {
             RemotingCommand.createRequestCommand(RequestCode.GET_CONSUMER_STATUS_FROM_CLIENT,
                 requestHeader);
 
-        Map<String, Map<MessageQueue, Long>> consumerStatusTable =
-            new HashMap<String, Map<MessageQueue, Long>>();
+        Map<String, Map<MessageQueue, Long>> consumerStatusTable = new HashMap<>();
         ConcurrentMap<Channel, ClientChannelInfo> channelInfoTable =
             this.brokerController.getConsumerManager().getConsumerGroupInfo(group).getChannelInfoTable();
         if (null == channelInfoTable || channelInfoTable.isEmpty()) {
@@ -267,7 +257,7 @@ public class Broker2Client {
                 result.setCode(ResponseCode.SYSTEM_ERROR);
                 result.setRemark("the client does not support this feature. version="
                     + MQVersion.getVersionDesc(version));
-                log.warn("[get-consumer-status] the client does not support this feature. version={}",
+                log.warn("[get-consumer-status] the client does not support this feature. channel={}, version={}",
                     RemotingHelper.parseChannelRemoteAddr(entry.getKey()), MQVersion.getVersionDesc(version));
                 return result;
             } else if (UtilAll.isBlank(originClientId) || originClientId.equals(clientId)) {
@@ -293,8 +283,8 @@ public class Broker2Client {
                     }
                 } catch (Exception e) {
                     log.error(
-                        "[get-consumer-status] get consumer status exception. topic={}, group={}, offset={}",
-                        new Object[] {topic, group}, e);
+                        "[get-consumer-status] get consumer status exception. topic={}, group={}, error={}",
+                        topic, group, e.toString());
                 }
 
                 if (!UtilAll.isBlank(originClientId) && originClientId.equals(clientId)) {

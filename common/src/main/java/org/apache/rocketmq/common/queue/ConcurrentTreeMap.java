@@ -22,8 +22,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.locks.ReentrantLock;
 import org.apache.rocketmq.common.constant.LoggerName;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.rocketmq.logging.org.slf4j.Logger;
+import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
 /**
  * thread safe
@@ -35,8 +35,8 @@ public class ConcurrentTreeMap<K, V> {
     private RoundQueue<K> roundQueue;
 
     public ConcurrentTreeMap(int capacity, Comparator<? super K> comparator) {
-        tree = new TreeMap<K, V>(comparator);
-        roundQueue = new RoundQueue<K>(capacity);
+        tree = new TreeMap<>(comparator);
+        roundQueue = new RoundQueue<>(capacity);
         lock = new ReentrantLock(true);
     }
 
@@ -58,7 +58,7 @@ public class ConcurrentTreeMap<K, V> {
                     tree.put(key, value);
                     exsit = value;
                 }
-                log.warn("putIfAbsentAndRetExsit success. {}", key);
+                log.warn("putIfAbsentAndRetExsit success. " + key);
                 return exsit;
             } else {
                 V exsit = tree.get(key);

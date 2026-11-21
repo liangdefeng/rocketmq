@@ -26,6 +26,7 @@ import org.mockito.Spy;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertNull;
 import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -36,10 +37,20 @@ public class NettyRemotingAbstractTest {
     @Test
     public void testProcessResponseCommand() throws InterruptedException {
         final Semaphore semaphore = new Semaphore(0);
-        ResponseFuture responseFuture = new ResponseFuture(1, 3000, new InvokeCallback() {
+        ResponseFuture responseFuture = new ResponseFuture(null, 1, 3000, new InvokeCallback() {
             @Override
-            public void operationComplete(final ResponseFuture responseFuture) {
+            public void operationComplete(ResponseFuture responseFuture) {
+
+            }
+
+            @Override
+            public void operationSucceed(RemotingCommand response) {
                 assertThat(semaphore.availablePermits()).isEqualTo(0);
+            }
+
+            @Override
+            public void operationFail(Throwable throwable) {
+
             }
         }, new SemaphoreReleaseOnlyOnce(semaphore));
 
@@ -57,7 +68,7 @@ public class NettyRemotingAbstractTest {
     @Test
     public void testProcessResponseCommand_NullCallBack() throws InterruptedException {
         final Semaphore semaphore = new Semaphore(0);
-        ResponseFuture responseFuture = new ResponseFuture(1, 3000, null,
+        ResponseFuture responseFuture = new ResponseFuture(null, 1, 3000, null,
             new SemaphoreReleaseOnlyOnce(semaphore));
 
         remotingAbstract.responseTable.putIfAbsent(1, responseFuture);
@@ -72,10 +83,20 @@ public class NettyRemotingAbstractTest {
     @Test
     public void testProcessResponseCommand_RunCallBackInCurrentThread() throws InterruptedException {
         final Semaphore semaphore = new Semaphore(0);
-        ResponseFuture responseFuture = new ResponseFuture(1, 3000, new InvokeCallback() {
+        ResponseFuture responseFuture = new ResponseFuture(null, 1, 3000, new InvokeCallback() {
             @Override
-            public void operationComplete(final ResponseFuture responseFuture) {
+            public void operationComplete(ResponseFuture responseFuture) {
+
+            }
+
+            @Override
+            public void operationSucceed(RemotingCommand response) {
                 assertThat(semaphore.availablePermits()).isEqualTo(0);
+            }
+
+            @Override
+            public void operationFail(Throwable throwable) {
+
             }
         }, new SemaphoreReleaseOnlyOnce(semaphore));
 
@@ -87,6 +108,63 @@ public class NettyRemotingAbstractTest {
         remotingAbstract.processResponseCommand(null, response);
 
         // Acquire the release permit after call back finished in current thread
+        semaphore.acquire(1);
+        assertThat(semaphore.availablePermits()).isEqualTo(0);
+    }
+
+    @Test
+    public void testScanResponseTable() {
+        int dummyId = 1;
+        // mock timeout
+        ResponseFuture responseFuture = new ResponseFuture(null, dummyId, -1000, new InvokeCallback() {
+            @Override
+            public void operationComplete(ResponseFuture responseFuture) {
+
+            }
+
+            @Override
+            public void operationSucceed(RemotingCommand response) {
+
+            }
+
+            @Override
+            public void operationFail(Throwable throwable) {
+
+            }
+        }, null);
+        remotingAbstract.responseTable.putIfAbsent(dummyId, responseFuture);
+        remotingAbstract.scanResponseTable();
+        assertNull(remotingAbstract.responseTable.get(dummyId));
+    }
+
+    @Test
+    public void testProcessRequestCommand() throws InterruptedException {
+        final Semaphore semaphore = new Semaphore(0);
+        RemotingCommand request = RemotingCommand.createRequestCommand(1, null);
+        ResponseFuture responseFuture = new ResponseFuture(null, 1, request, 3000,
+            new InvokeCallback() {
+                @Override
+                public void operationComplete(ResponseFuture responseFuture) {
+
+                }
+
+                @Override
+                public void operationSucceed(RemotingCommand response) {
+                    assertThat(semaphore.availablePermits()).isEqualTo(0);
+                }
+
+                @Override
+                public void operationFail(Throwable throwable) {
+
+                }
+            }, new SemaphoreReleaseOnlyOnce(semaphore));
+
+        remotingAbstract.responseTable.putIfAbsent(1, responseFuture);
+        RemotingCommand response = RemotingCommand.createResponseCommand(0, "Foo");
+        response.setOpaque(1);
+        remotingAbstract.processResponseCommand(null, response);
+
+        // Acquire the release permit after call back
         semaphore.acquire(1);
         assertThat(semaphore.availablePermits()).isEqualTo(0);
     }

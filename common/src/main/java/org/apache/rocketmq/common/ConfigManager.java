@@ -16,15 +16,15 @@
  */
 package org.apache.rocketmq.common;
 
-import java.io.IOException;
 import org.apache.rocketmq.common.constant.LoggerName;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.rocketmq.logging.org.slf4j.Logger;
+import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.Map;
 
 public abstract class ConfigManager {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.COMMON_LOGGER_NAME);
-
-    public abstract String encode();
 
     public boolean load() {
         String fileName = null;
@@ -36,36 +36,42 @@ public abstract class ConfigManager {
                 return this.loadBak();
             } else {
                 this.decode(jsonString);
-                log.info("load {} OK", fileName);
+                log.info("load " + fileName + " OK");
                 return true;
             }
         } catch (Exception e) {
-            log.error("load [{}] failed, and try to load backup file", fileName, e);
+            log.error("load " + fileName + " failed, and try to load backup file", e);
             return this.loadBak();
         }
     }
 
-    public abstract String configFilePath();
-
     private boolean loadBak() {
         String fileName = null;
         try {
-            fileName = this.configFilePath();
-            String jsonString = MixAll.file2String(fileName + ".bak");
+            fileName = this.configFilePath() + ".bak";
+            String jsonString = MixAll.file2String(fileName);
             if (jsonString != null && jsonString.length() > 0) {
                 this.decode(jsonString);
-                log.info("load [{}] OK", fileName);
+                log.info("load " + fileName + " OK");
                 return true;
             }
         } catch (Exception e) {
-            log.error("load [{}] Failed", fileName, e);
+            log.error("load " + fileName + " Failed", e);
             return false;
         }
 
         return true;
     }
 
-    public abstract void decode(final String jsonString);
+    public synchronized <T> void persist(String topicName, T t) {
+        // stub for future
+        this.persist();
+    }
+
+    public synchronized <T> void persist(Map<String, T> m) {
+        // stub for future
+        this.persist();
+    }
 
     public synchronized void persist() {
         String jsonString = this.encode(true);
@@ -74,10 +80,20 @@ public abstract class ConfigManager {
             try {
                 MixAll.string2File(jsonString, fileName);
             } catch (IOException e) {
-                log.error("persist file [{}] exception", fileName, e);
+                log.error("persist file " + fileName + " exception", e);
             }
         }
     }
 
+    public boolean stop() {
+        return true;
+    }
+
+    public abstract String configFilePath();
+
+    public abstract String encode();
+
     public abstract String encode(final boolean prettyFormat);
+
+    public abstract void decode(final String jsonString);
 }

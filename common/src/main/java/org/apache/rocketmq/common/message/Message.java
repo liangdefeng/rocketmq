@@ -17,6 +17,7 @@
 package org.apache.rocketmq.common.message;
 
 import java.io.Serializable;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -28,6 +29,7 @@ public class Message implements Serializable {
     private int flag;
     private Map<String, String> properties;
     private byte[] body;
+    private String transactionId;
 
     public Message() {
     }
@@ -41,11 +43,13 @@ public class Message implements Serializable {
         this.flag = flag;
         this.body = body;
 
-        if (tags != null && tags.length() > 0)
+        if (tags != null && tags.length() > 0) {
             this.setTags(tags);
+        }
 
-        if (keys != null && keys.length() > 0)
+        if (keys != null && keys.length() > 0) {
             this.setKeys(keys);
+        }
 
         this.setWaitStoreMsgOK(waitStoreMsgOK);
     }
@@ -64,7 +68,7 @@ public class Message implements Serializable {
 
     void putProperty(final String name, final String value) {
         if (null == this.properties) {
-            this.properties = new HashMap<String, String>();
+            this.properties = new HashMap<>();
         }
 
         this.properties.put(name, value);
@@ -98,10 +102,17 @@ public class Message implements Serializable {
 
     public String getProperty(final String name) {
         if (null == this.properties) {
-            this.properties = new HashMap<String, String>();
+            this.properties = new HashMap<>();
         }
 
         return this.properties.get(name);
+    }
+
+    public boolean hasProperty(final String name) {
+        if (null == this.properties) {
+            return false;
+        }
+        return this.properties.containsKey(name);
     }
 
     public String getTopic() {
@@ -124,14 +135,10 @@ public class Message implements Serializable {
         return this.getProperty(MessageConst.PROPERTY_KEYS);
     }
 
-    public void setKeys(Collection<String> keys) {
-        StringBuffer sb = new StringBuffer();
-        for (String k : keys) {
-            sb.append(k);
-            sb.append(MessageConst.KEY_SEPARATOR);
-        }
+    public void setKeys(Collection<String> keyCollection) {
+        String keys = String.join(MessageConst.KEY_SEPARATOR, keyCollection);
 
-        this.setKeys(sb.toString().trim());
+        this.setKeys(keys);
     }
 
     public int getDelayTimeLevel() {
@@ -149,14 +156,19 @@ public class Message implements Serializable {
 
     public boolean isWaitStoreMsgOK() {
         String result = this.getProperty(MessageConst.PROPERTY_WAIT_STORE_MSG_OK);
-        if (null == result)
+        if (null == result) {
             return true;
+        }
 
         return Boolean.parseBoolean(result);
     }
 
     public void setWaitStoreMsgOK(boolean waitStoreMsgOK) {
         this.putProperty(MessageConst.PROPERTY_WAIT_STORE_MSG_OK, Boolean.toString(waitStoreMsgOK));
+    }
+
+    public void setInstanceId(String instanceId) {
+        this.putProperty(MessageConst.PROPERTY_INSTANCE_ID, instanceId);
     }
 
     public int getFlag() {
@@ -191,9 +203,58 @@ public class Message implements Serializable {
         putProperty(MessageConst.PROPERTY_BUYER_ID, buyerId);
     }
 
+    public String getTransactionId() {
+        return transactionId;
+    }
+
+    public void setTransactionId(String transactionId) {
+        this.transactionId = transactionId;
+    }
+
     @Override
     public String toString() {
-        return "Message [topic=" + topic + ", flag=" + flag + ", properties=" + properties + ", body="
-            + (body != null ? body.length : 0) + "]";
+        return "Message{" +
+            "topic='" + topic + '\'' +
+            ", flag=" + flag +
+            ", properties=" + properties +
+            ", body=" + Arrays.toString(body) +
+            ", transactionId='" + transactionId + '\'' +
+            '}';
+    }
+
+    public void setDelayTimeSec(long sec) {
+        this.putProperty(MessageConst.PROPERTY_TIMER_DELAY_SEC, String.valueOf(sec));
+    }
+
+    public long getDelayTimeSec() {
+        String t = this.getProperty(MessageConst.PROPERTY_TIMER_DELAY_SEC);
+        if (t != null) {
+            return Long.parseLong(t);
+        }
+        return 0;
+    }
+
+    public void setDelayTimeMs(long timeMs) {
+        this.putProperty(MessageConst.PROPERTY_TIMER_DELAY_MS, String.valueOf(timeMs));
+    }
+
+    public long getDelayTimeMs() {
+        String t = this.getProperty(MessageConst.PROPERTY_TIMER_DELAY_MS);
+        if (t != null) {
+            return Long.parseLong(t);
+        }
+        return 0;
+    }
+
+    public void setDeliverTimeMs(long timeMs) {
+        this.putProperty(MessageConst.PROPERTY_TIMER_DELIVER_MS, String.valueOf(timeMs));
+    }
+
+    public long getDeliverTimeMs() {
+        String t = this.getProperty(MessageConst.PROPERTY_TIMER_DELIVER_MS);
+        if (t != null) {
+            return Long.parseLong(t);
+        }
+        return 0;
     }
 }
